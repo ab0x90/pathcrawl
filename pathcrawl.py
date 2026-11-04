@@ -368,16 +368,36 @@ class PathCrawl:
     @staticmethod
     def _load_users(args):
         users = []
+        domains = set()
         if args.users_file:
             with open(args.users_file) as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#"):
-                        u = line.split("\\")[-1] if "\\" in line else line
+                        if "\\" in line:
+                            domain, u = line.split("\\", 1)
+                            domains.add(domain.upper())
+                        else:
+                            u = line
                         users.append(u)
         if args.users:
-            users.extend(args.users.split(","))
-        return list(dict.fromkeys(users)) if users else DEFAULT_USERS
+            for entry in args.users.split(","):
+                if "\\" in entry:
+                    domain, u = entry.split("\\", 1)
+                    domains.add(domain.upper())
+                else:
+                    u = entry
+                users.append(u)
+        if args.domain:
+            domains.add(args.domain.upper())
+        base_users = list(dict.fromkeys(users)) if users else DEFAULT_USERS
+        if domains:
+            suffixed = []
+            for u in base_users:
+                for d in domains:
+                    suffixed.append(f"{u}.{d}")
+            base_users = base_users + suffixed
+        return list(dict.fromkeys(base_users))
 
     def _parse_headers(self, header_list):
         headers = {}
@@ -787,7 +807,8 @@ def main():
     parser.add_argument("--encoding", help="Force specific encoding (skip auto-detect)")
     parser.add_argument("--depth", type=int, help="Force specific depth (skip auto-detect)")
     parser.add_argument("--users", help="Comma-separated usernames to check (default: common names)")
-    parser.add_argument("--users-file", help="File with usernames, one per line (DOMAIN\\\\user stripped to user)")
+    parser.add_argument("--users-file", help="File with usernames, one per line (DOMAIN\\\\user auto-parsed)")
+    parser.add_argument("--domain", help="Domain short name — also probes user.DOMAIN dirs (collision variant)")
     parser.add_argument("--stack", default="any", choices=["any", "iis", "dotnet", "dotnet-core"],
                         help="Web stack filter (default: any)")
     parser.add_argument("--categories", help="Comma-separated categories to test (creds,recon,user-enum,custom)")
