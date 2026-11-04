@@ -340,7 +340,7 @@ class PathCrawl:
         self.threads = args.threads
         self.delay = args.delay
         self.max_depth = args.max_depth
-        self.users = args.users.split(",") if args.users else DEFAULT_USERS
+        self.users = self._load_users(args)
         self.extra_users = []
         self.output_file = args.output
         self.json_output = args.json
@@ -364,6 +364,20 @@ class PathCrawl:
 
         self.baseline_length = None
         self.baseline_status = None
+
+    @staticmethod
+    def _load_users(args):
+        users = []
+        if args.users_file:
+            with open(args.users_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        u = line.split("\\")[-1] if "\\" in line else line
+                        users.append(u)
+        if args.users:
+            users.extend(args.users.split(","))
+        return list(dict.fromkeys(users)) if users else DEFAULT_USERS
 
     def _parse_headers(self, header_list):
         headers = {}
@@ -773,6 +787,7 @@ def main():
     parser.add_argument("--encoding", help="Force specific encoding (skip auto-detect)")
     parser.add_argument("--depth", type=int, help="Force specific depth (skip auto-detect)")
     parser.add_argument("--users", help="Comma-separated usernames to check (default: common names)")
+    parser.add_argument("--users-file", help="File with usernames, one per line (DOMAIN\\\\user stripped to user)")
     parser.add_argument("--stack", default="any", choices=["any", "iis", "dotnet", "dotnet-core"],
                         help="Web stack filter (default: any)")
     parser.add_argument("--categories", help="Comma-separated categories to test (creds,recon,user-enum,custom)")
